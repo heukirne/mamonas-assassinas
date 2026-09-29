@@ -84,6 +84,65 @@
   });
   spriteSheet.src = "assets/tiny_spritesheet.png";
 
+  // Elementos do cenario em alta resolucao (tools/elements_art.py).
+  // Cada celula tem 96px e representa um tile; o layout segue o gerador.
+  const ELEMENT_CELL = 96;
+  const ELEMENT_LAYOUT = {
+    crate: [4, 4],
+    barrier: [5, 4],
+    hook: [6, 4],
+    fruit: [7, 4],
+    clock: [0, 5],
+    bat0: [1, 5],
+    bat1: [2, 5],
+    fish0: [3, 5],
+    fish1: [4, 5],
+    exit: [0, 6, 2, 2],
+  };
+  ["desert", "lagoon", "forest", "castle"].forEach((theme, row) => {
+    ["ground0", "ground1", "top0", "top1", "above0", "above1", "below", "soft"].forEach((name, col) => {
+      ELEMENT_LAYOUT[`${theme}:${name}`] = [col, row];
+    });
+    ELEMENT_LAYOUT[`${theme}:spikes`] = [row, 4];
+  });
+  for (let i = 0; i < 6; i += 1) {
+    ELEMENT_LAYOUT[`coin${i}`] = [2 + i, 6];
+  }
+  const elements = Object.create(null);
+  let elementsReady = false;
+  const elementSheet = new Image();
+  elementSheet.addEventListener("load", () => {
+    // Recorta cada celula num canvas proprio para evitar vazamento entre vizinhos.
+    for (const [name, [col, row, cw = 1, ch = 1]] of Object.entries(ELEMENT_LAYOUT)) {
+      const piece = document.createElement("canvas");
+      piece.width = ELEMENT_CELL * cw;
+      piece.height = ELEMENT_CELL * ch;
+      piece.getContext("2d").drawImage(
+        elementSheet,
+        col * ELEMENT_CELL,
+        row * ELEMENT_CELL,
+        piece.width,
+        piece.height,
+        0,
+        0,
+        piece.width,
+        piece.height
+      );
+      elements[name] = piece;
+    }
+    elementsReady = true;
+  });
+  elementSheet.src = "assets/elements.png";
+
+  function drawElement(c, name, x, y, w = TILE, h = TILE) {
+    const piece = elementsReady ? elements[name] : null;
+    if (!piece) {
+      return false;
+    }
+    c.drawImage(piece, x, y, w, h);
+    return true;
+  }
+
   // Fisica: os Tinies tem inercia e ricocheteiam nas paredes.
   const GRAVITY = 1000;
   const MAX_FALL = 720;
@@ -1794,120 +1853,242 @@
     return ((v % period) + period) % period;
   }
 
-  function drawHills(offset, period, baseY, amp, color, freq) {
-    wc.fillStyle = color;
+  function hillPath(offset, period, baseY, amp, freq) {
     wc.beginPath();
     wc.moveTo(0, viewSize.h);
-    for (let x = 0; x <= viewSize.w + 8; x += 8) {
+    for (let x = 0; x <= viewSize.w + 6; x += 6) {
       const wx = x + offset;
       const y = baseY - amp * (0.5 + 0.5 * Math.sin((wx / period) * Math.PI * 2 * freq)) -
         amp * 0.35 * Math.sin((wx / period) * Math.PI * 2 * freq * 2.3 + 1.3);
-      wc.lineTo(x, Math.round(y));
+      wc.lineTo(x, y);
     }
     wc.lineTo(viewSize.w, viewSize.h);
     wc.closePath();
+  }
+
+  function drawHills(offset, period, baseY, amp, top, bottom, freq = 1) {
+    const g = wc.createLinearGradient(0, baseY - amp * 1.4, 0, viewSize.h);
+    g.addColorStop(0, top);
+    g.addColorStop(1, bottom);
+    wc.fillStyle = g;
+    hillPath(offset, period, baseY, amp, freq);
+    wc.fill();
+  }
+
+  function glowCircle(x, y, r, color, alpha) {
+    const g = wc.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0, `rgba(${color}, ${alpha})`);
+    g.addColorStop(1, `rgba(${color}, 0)`);
+    wc.fillStyle = g;
+    wc.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+
+  function cloud(x, y, s, color) {
+    wc.fillStyle = color;
+    wc.beginPath();
+    wc.arc(x, y, 12 * s, Math.PI * 0.5, Math.PI * 1.5);
+    wc.arc(x + 14 * s, y - 10 * s, 14 * s, Math.PI, Math.PI * 2);
+    wc.arc(x + 34 * s, y - 6 * s, 11 * s, Math.PI * 1.1, Math.PI * 2);
+    wc.arc(x + 46 * s, y, 12 * s, Math.PI * 1.5, Math.PI * 0.5);
+    wc.closePath();
+    wc.fill();
+  }
+
+  function palm(x, groundY, h, lean, time) {
+    wc.strokeStyle = "#6b4a2a";
+    wc.lineWidth = 5;
+    wc.lineCap = "round";
+    wc.beginPath();
+    wc.moveTo(x, groundY);
+    wc.quadraticCurveTo(x + lean * 0.3, groundY - h * 0.6, x + lean, groundY - h);
+    wc.stroke();
+    wc.strokeStyle = "rgba(0,0,0,0.18)";
+    wc.lineWidth = 2;
+    wc.stroke();
+    const tx = x + lean;
+    const ty = groundY - h;
+    const sway = Math.sin(time * 1.3 + x) * 2;
+    for (let i = 0; i < 6; i += 1) {
+      const a = -Math.PI + (i / 5) * Math.PI;
+      const ex = tx + Math.cos(a) * 34;
+      const ey = ty + Math.sin(a) * 12 + 14 + sway;
+      wc.strokeStyle = i % 2 ? "#2f8a3c" : "#3fa24a";
+      wc.lineWidth = 5;
+      wc.beginPath();
+      wc.moveTo(tx, ty);
+      wc.quadraticCurveTo(tx + Math.cos(a) * 20, ty - 12, ex, ey);
+      wc.stroke();
+    }
+    wc.fillStyle = "#7a4e22";
+    wc.beginPath();
+    wc.arc(tx - 3, ty + 4, 3.5, 0, Math.PI * 2);
+    wc.arc(tx + 4, ty + 5, 3.5, 0, Math.PI * 2);
+    wc.fill();
+    wc.lineCap = "butt";
+  }
+
+  function tree(x, groundY, h, r, trunk, leaf) {
+    wc.fillStyle = trunk;
+    wc.fillRect(x - r * 0.18, groundY - h, r * 0.36, h);
+    wc.fillStyle = leaf;
+    wc.beginPath();
+    wc.arc(x, groundY - h, r, 0, Math.PI * 2);
+    wc.arc(x - r * 0.7, groundY - h + r * 0.4, r * 0.7, 0, Math.PI * 2);
+    wc.arc(x + r * 0.7, groundY - h + r * 0.4, r * 0.7, 0, Math.PI * 2);
     wc.fill();
   }
 
   function drawBackdrop(themeName, camX, time) {
     const theme = THEMES[themeName] || THEMES.castle;
-    wc.fillStyle = skyGradient(theme.sky);
-    wc.fillRect(0, 0, viewSize.w, viewSize.h);
+    const W = viewSize.w;
     const H = viewSize.h;
+    wc.fillStyle = skyGradient(theme.sky);
+    wc.fillRect(0, 0, W, H);
 
     if (themeName === "desert") {
-      wc.fillStyle = "rgba(255, 244, 200, 0.9)";
+      const sx = W * 0.78 - camX * 0.02;
+      glowCircle(sx, H * 0.22, 120, "255, 236, 170", 0.55);
+      wc.fillStyle = "#fff6d6";
       wc.beginPath();
-      wc.arc(viewSize.w * 0.78 - camX * 0.02, H * 0.22, 34, 0, Math.PI * 2);
+      wc.arc(sx, H * 0.22, 30, 0, Math.PI * 2);
       wc.fill();
-      // piramides distantes
-      wc.fillStyle = "#e39a52";
+      // mesas distantes
+      drawHills(camX * 0.06, 900, H * 0.66, 30, "rgba(214, 128, 84, 0.8)", "rgba(240, 170, 110, 0.8)", 2);
+      // piramides com face iluminada e sombra
       for (let i = 0; i < 4; i += 1) {
-        const px = wrap(i * 260 - camX * 0.1, viewSize.w + 260) - 130;
-        const s = 60 + (i % 2) * 30;
+        const px = wrap(i * 300 - camX * 0.12, W + 300) - 150;
+        const s = 58 + (i % 2) * 34;
+        const base = H * 0.76;
+        wc.fillStyle = "#f0b46a";
         wc.beginPath();
-        wc.moveTo(px - s, H * 0.72);
-        wc.lineTo(px, H * 0.72 - s);
-        wc.lineTo(px + s, H * 0.72);
+        wc.moveTo(px - s, base);
+        wc.lineTo(px, base - s);
+        wc.lineTo(px + s * 0.25, base);
+        wc.fill();
+        wc.fillStyle = "#c7824a";
+        wc.beginPath();
+        wc.moveTo(px, base - s);
+        wc.lineTo(px + s, base);
+        wc.lineTo(px + s * 0.25, base);
         wc.fill();
       }
-      drawHills(camX * 0.25, 600, H * 0.8, 40, "#e8a95e", 1);
-      drawHills(camX * 0.45, 420, H * 0.92, 36, "#d48d45", 1);
+      drawHills(camX * 0.25, 640, H * 0.82, 38, "#f2c078", "#dc9a52");
+      drawHills(camX * 0.45, 440, H * 0.94, 34, "#e2a560", "#bf7c3c");
     } else if (themeName === "lagoon") {
-      wc.fillStyle = "rgba(255,255,255,0.85)";
+      glowCircle(W * 0.18 - camX * 0.02, H * 0.16, 90, "255, 255, 220", 0.6);
       for (let i = 0; i < 6; i += 1) {
-        const cx = wrap(i * 190 - camX * 0.08 + time * 6, viewSize.w + 200) - 100;
-        const cy = 40 + (i % 3) * 30;
-        wc.fillRect(cx, cy, 70, 12);
-        wc.fillRect(cx + 12, cy - 8, 40, 10);
+        const cx = wrap(i * 210 - camX * 0.08 + time * 6, W + 240) - 120;
+        const cy = 50 + (i % 3) * 32;
+        const s = 0.8 + (i % 2) * 0.4;
+        cloud(cx + 3, cy + 4, s, "rgba(120, 170, 220, 0.35)");
+        cloud(cx, cy, s, "rgba(255, 255, 255, 0.95)");
       }
-      wc.fillStyle = "#2f7fc4";
-      wc.fillRect(0, H * 0.66, viewSize.w, H * 0.34);
-      wc.fillStyle = "rgba(255,255,255,0.35)";
-      for (let i = 0; i < 20; i += 1) {
-        const wx = wrap(i * 67 - camX * 0.2 + Math.sin(time + i) * 6, viewSize.w);
-        wc.fillRect(wx, H * 0.68 + (i % 5) * 14, 18, 2);
+      // ilhas e mar
+      drawHills(camX * 0.08, 800, H * 0.66, 26, "#4f9c7a", "#3d8568", 1.5);
+      const sea = wc.createLinearGradient(0, H * 0.66, 0, H);
+      sea.addColorStop(0, "#5fb4e6");
+      sea.addColorStop(1, "#1f6fb0");
+      wc.fillStyle = sea;
+      wc.fillRect(0, H * 0.66, W, H * 0.34);
+      for (let i = 0; i < 26; i += 1) {
+        const wx = wrap(i * 61 - camX * 0.2 + Math.sin(time * 0.8 + i) * 8, W);
+        const wy = H * 0.68 + (i % 6) * 12;
+        const a = 0.25 + 0.25 * Math.sin(time * 2 + i);
+        wc.fillStyle = `rgba(255, 255, 255, ${a})`;
+        wc.fillRect(wx, wy, 14 + (i % 3) * 6, 1.5);
       }
-      drawHills(camX * 0.3, 700, H * 0.7, 30, "#3a8f4a", 1);
-      // palmeiras
+      drawHills(camX * 0.3, 700, H * 0.74, 22, "#58b85a", "#2f8a44");
       for (let i = 0; i < 5; i += 1) {
-        const px = wrap(i * 230 - camX * 0.3, viewSize.w + 230) - 110;
-        wc.fillStyle = "#5a3d24";
-        wc.fillRect(px, H * 0.46, 6, H * 0.22);
-        wc.fillStyle = "#2e7d38";
-        wc.fillRect(px - 26, H * 0.44, 58, 8);
-        wc.fillRect(px - 16, H * 0.42, 38, 6);
-        wc.fillRect(px - 30, H * 0.47, 12, 6);
-        wc.fillRect(px + 24, H * 0.47, 12, 6);
+        const px = wrap(i * 250 - camX * 0.3, W + 250) - 120;
+        palm(px, H * 0.74, 70 + (i % 3) * 14, i % 2 ? 14 : -12, time);
       }
     } else if (themeName === "forest") {
-      for (let layer = 0; layer < 3; layer += 1) {
-        const speed = 0.12 + layer * 0.15;
-        const shade = ["#143822", "#1b4a2b", "#245c34"][layer];
-        wc.fillStyle = shade;
-        for (let i = 0; i < 12; i += 1) {
-          const px = wrap(i * 110 + layer * 37 - camX * speed, viewSize.w + 110) - 55;
-          const tw = 16 + layer * 8;
-          wc.fillRect(px, 0, tw, H);
+      const layers = [
+        { speed: 0.1, trunk: "#10301d", leaf: "#15402a", y: 0.55, r: 34 },
+        { speed: 0.22, trunk: "#173f25", leaf: "#1d5433", y: 0.7, r: 42 },
+        { speed: 0.38, trunk: "#1f4d2c", leaf: "#26683c", y: 0.86, r: 50 },
+      ];
+      layers.forEach((layer, li) => {
+        for (let i = 0; i < 9; i += 1) {
+          const px = wrap(i * 140 + li * 53 - camX * layer.speed, W + 160) - 80;
+          tree(px, H, H * layer.y, layer.r, layer.trunk, layer.leaf);
         }
-      }
-      wc.fillStyle = "rgba(200, 255, 170, 0.07)";
+        const fog = wc.createLinearGradient(0, H * 0.4, 0, H);
+        fog.addColorStop(0, "rgba(150, 210, 150, 0)");
+        fog.addColorStop(1, "rgba(150, 210, 150, 0.12)");
+        wc.fillStyle = fog;
+        wc.fillRect(0, 0, W, H);
+      });
       for (let i = 0; i < 4; i += 1) {
-        const px = wrap(i * 300 - camX * 0.05, viewSize.w + 300) - 150;
+        const px = wrap(i * 320 - camX * 0.05, W + 320) - 160;
+        const ray = wc.createLinearGradient(px, 0, px + 140, H);
+        ray.addColorStop(0, "rgba(230, 255, 190, 0.16)");
+        ray.addColorStop(1, "rgba(230, 255, 190, 0)");
+        wc.fillStyle = ray;
         wc.beginPath();
         wc.moveTo(px, 0);
-        wc.lineTo(px + 60, 0);
-        wc.lineTo(px + 180, H);
-        wc.lineTo(px + 100, H);
+        wc.lineTo(px + 50, 0);
+        wc.lineTo(px + 190, H);
+        wc.lineTo(px + 110, H);
         wc.fill();
       }
+      // vaga-lumes
+      for (let i = 0; i < 14; i += 1) {
+        const fx = wrap(i * 97 - camX * 0.3 + Math.sin(time * 0.7 + i) * 20, W);
+        const fy = H * 0.35 + ((i * 53) % (H * 0.5)) + Math.cos(time + i) * 10;
+        const a = 0.4 + 0.4 * Math.sin(time * 3 + i * 1.7);
+        glowCircle(fx, fy, 6, "220, 255, 140", a * 0.6);
+        wc.fillStyle = `rgba(240, 255, 190, ${a})`;
+        wc.fillRect(fx - 1, fy - 1, 2, 2);
+      }
     } else {
-      wc.fillStyle = "rgba(220, 230, 255, 0.28)";
+      const mx = W * 0.8 - camX * 0.03;
+      glowCircle(mx, H * 0.2, 110, "200, 215, 255", 0.35);
+      wc.fillStyle = "#e9eeff";
       wc.beginPath();
-      wc.arc(viewSize.w * 0.8 - camX * 0.03, H * 0.2, 30, 0, Math.PI * 2);
+      wc.arc(mx, H * 0.2, 26, 0, Math.PI * 2);
       wc.fill();
+      wc.fillStyle = "rgba(170, 180, 215, 0.7)";
+      for (const [ox, oy, r] of [[-8, -6, 5], [7, 4, 4], [-3, 10, 3], [10, -9, 2.5]]) {
+        wc.beginPath();
+        wc.arc(mx + ox, H * 0.2 + oy, r, 0, Math.PI * 2);
+        wc.fill();
+      }
       for (const s of starsFar) {
         const alpha = 0.35 + 0.35 * Math.sin(time * 0.4 + s.phase);
         wc.fillStyle = `rgba(220, 230, 255, ${alpha})`;
-        wc.fillRect(wrap(s.x - camX * 0.05, viewSize.w + 40) - 20, s.y, s.size, s.size);
+        wc.fillRect(wrap(s.x - camX * 0.05, W + 40) - 20, s.y, s.size, s.size);
       }
       for (const s of starsNear) {
         const alpha = 0.5 + 0.45 * Math.sin(time + s.phase);
         wc.fillStyle = `rgba(240, 246, 255, ${alpha})`;
-        wc.fillRect(wrap(s.x - camX * 0.1, viewSize.w + 40) - 20, s.y, s.size, s.size);
+        wc.fillRect(wrap(s.x - camX * 0.1, W + 40) - 20, s.y, s.size, s.size);
       }
-      // torres do castelo
-      wc.fillStyle = "#1a2248";
+      cloud(wrap(W * 0.6 - camX * 0.05 + time * 4, W + 120) - 60, H * 0.24, 1.1, "rgba(60, 70, 120, 0.55)");
+      drawHills(camX * 0.08, 700, H * 0.78, 60, "#1c2552", "#141b3c", 1.6);
+      // silhuetas de torres com janelas acesas
       for (let i = 0; i < 6; i += 1) {
-        const px = wrap(i * 200 - camX * 0.2, viewSize.w + 200) - 100;
-        const th = 90 + (i % 3) * 40;
-        wc.fillRect(px, H - th, 40, th);
+        const px = wrap(i * 220 - camX * 0.2, W + 220) - 110;
+        const th = 100 + (i % 3) * 40;
+        wc.fillStyle = "#121937";
+        wc.fillRect(px, H - th, 44, th);
         for (let m = 0; m < 3; m += 1) {
-          wc.fillRect(px - 4 + m * 16, H - th - 10, 10, 10);
+          wc.fillRect(px - 4 + m * 18, H - th - 10, 12, 10);
         }
-        wc.fillStyle = "rgba(255, 210, 110, 0.6)";
-        wc.fillRect(px + 16, H - th + 24, 6, 10);
-        wc.fillStyle = "#1a2248";
+        wc.beginPath();
+        wc.moveTo(px + 6, H - th - 10);
+        wc.lineTo(px + 22, H - th - 44);
+        wc.lineTo(px + 38, H - th - 10);
+        wc.fill();
+        const flicker = 0.6 + 0.3 * Math.sin(time * 5 + i * 2);
+        glowCircle(px + 22, H - th + 30, 14, "255, 200, 110", 0.35 * flicker);
+        wc.fillStyle = `rgba(255, 214, 120, ${flicker})`;
+        wc.beginPath();
+        wc.moveTo(px + 18, H - th + 36);
+        wc.lineTo(px + 18, H - th + 26);
+        wc.arc(px + 22, H - th + 26, 4, Math.PI, 0);
+        wc.lineTo(px + 26, H - th + 36);
+        wc.fill();
       }
     }
   }
@@ -1916,11 +2097,50 @@
   // Desenho: tiles
   // ---------------------------------------------------------------------
 
+  const WATER_SHADES = [
+    "rgba(52, 140, 220, 0.62)",
+    "rgba(40, 116, 200, 0.7)",
+    "rgba(30, 94, 178, 0.76)",
+    "rgba(22, 74, 150, 0.82)",
+  ];
+
+  // Brilho circular suave centrado no retangulo (sem bordas visiveis).
+  function glowRect(x, y, w, h, color, alpha) {
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    const r = Math.max(w, h) / 2;
+    const g = wc.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, `rgba(${color}, ${alpha})`);
+    g.addColorStop(1, `rgba(${color}, 0)`);
+    wc.fillStyle = g;
+    wc.fillRect(cx - r, cy - r, r * 2, r * 2);
+  }
+
+  // Brilho vertical que sobe da superficie de lava/acido (emenda entre tiles).
+  function glowStrip(x, y, w, h, color, alpha) {
+    const g = wc.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, `rgba(${color}, 0)`);
+    g.addColorStop(1, `rgba(${color}, ${alpha})`);
+    wc.fillStyle = g;
+    wc.fillRect(x, y, w, h);
+  }
+
   function drawGroundTile(x, y, tx, ty, theme, themeName) {
     const above = getTile(tx, ty - 1);
     const below = getTile(tx, ty + 1);
     const openAbove = !isSolidTile(above) && above !== "W";
     const openBelow = !isSolidTile(below) && ty + 1 < game.level.h;
+
+    const variant = (tx * 7 + ty * 13) % 2;
+    if (drawElement(wc, `${themeName}:${openAbove ? "top" : "ground"}${variant}`, x, y)) {
+      if (openAbove && above === ".") {
+        drawElement(wc, `${themeName}:above${(tx * 5 + ty * 3) % 3 === 0 ? 0 : 1}`, x, y - TILE);
+      }
+      if (openBelow && below === ".") {
+        drawElement(wc, `${themeName}:below`, x, y + TILE);
+      }
+      return;
+    }
 
     wc.fillStyle = theme.ground;
     wc.fillRect(x, y, TILE, TILE);
@@ -1975,6 +2195,10 @@
       return;
     }
 
+    if (tile === "D" && drawElement(wc, `${themeName}:soft`, x, y)) {
+      return;
+    }
+
     if (tile === "D") {
       // Terra fofa: rachada e mais clara que o chao, o Tiny vermelho come.
       wc.fillStyle = theme.soft;
@@ -1994,6 +2218,10 @@
       return;
     }
 
+    if (tile === "B" && drawElement(wc, "barrier", x, y)) {
+      return;
+    }
+
     if (tile === "B") {
       // Feixe de galhos secos: queima com o fogo do Tiny amarelo.
       wc.fillStyle = "#6b3f1d";
@@ -2008,6 +2236,10 @@
       wc.fillStyle = "#3c220e";
       wc.fillRect(x + 7, y + 4, 1, 5);
       wc.fillRect(x + 23, y + 14, 1, 5);
+      return;
+    }
+
+    if (tile === "K" && drawElement(wc, "crate", x, y)) {
       return;
     }
 
@@ -2029,19 +2261,50 @@
     }
 
     if (tile === "W") {
-      const surface = getTile(tx, ty - 1) !== "W" && !isSolidTile(getTile(tx, ty - 1));
-      wc.fillStyle = "rgba(40, 120, 210, 0.62)";
-      wc.fillRect(x, y, TILE, TILE);
-      if (surface) {
-        const wave = Math.round(Math.sin(time * 3 + tx * 0.9) * 1.5);
-        wc.fillStyle = "rgba(190, 235, 255, 0.85)";
-        wc.fillRect(x, y + 1 + wave, TILE, 3);
-        wc.fillStyle = "rgba(255, 255, 255, 0.5)";
-        wc.fillRect(x + ((tx * 11) % 20), y + 6 + wave, 8, 1);
-      } else if ((tx + ty) % 3 === 0) {
-        wc.fillStyle = "rgba(180, 225, 255, 0.18)";
-        wc.fillRect(x + 6, y + 10 + Math.round(Math.sin(time * 2 + tx) * 3), 10, 1);
+      const up = getTile(tx, ty - 1);
+      const surface = up !== "W" && !isSolidTile(up);
+      let depth = isSolidTile(up) ? 2 : 0;
+      while (depth < 3 && getTile(tx, ty - depth - 1) === "W") {
+        depth += 1;
       }
+      wc.fillStyle = WATER_SHADES[depth];
+      wc.fillRect(x, y, TILE, TILE);
+      // reflexos de luz se movendo no fundo
+      wc.strokeStyle = `rgba(200, 240, 255, ${0.12 - depth * 0.025})`;
+      wc.lineWidth = 1;
+      wc.beginPath();
+      for (let i = 0; i < 2; i += 1) {
+        const cy = y + 10 + i * 12 + Math.sin(time * 1.5 + tx + i) * 3;
+        wc.moveTo(x, cy);
+        wc.quadraticCurveTo(x + 16, cy + Math.sin(time * 2 + tx * 1.7 + i) * 4, x + TILE, cy);
+      }
+      wc.stroke();
+      if (surface) {
+        const wave = (px) => y + 3 + Math.sin(time * 3 + (x + px) * 0.12) * 1.6;
+        wc.fillStyle = "rgba(170, 230, 255, 0.55)";
+        wc.beginPath();
+        wc.moveTo(x, y + 8);
+        for (let px = 0; px <= TILE; px += 4) {
+          wc.lineTo(x + px, wave(px));
+        }
+        wc.lineTo(x + TILE, y + 8);
+        wc.fill();
+        wc.strokeStyle = "rgba(255, 255, 255, 0.9)";
+        wc.lineWidth = 1.5;
+        wc.beginPath();
+        wc.moveTo(x, wave(0));
+        for (let px = 4; px <= TILE; px += 4) {
+          wc.lineTo(x + px, wave(px));
+        }
+        wc.stroke();
+        const sparkle = (tx * 11 + Math.floor(time * 2)) % 24;
+        wc.fillStyle = "rgba(255, 255, 255, 0.8)";
+        wc.fillRect(x + sparkle, wave(sparkle) + 4, 4, 1);
+      }
+      return;
+    }
+
+    if (tile === "S" && drawElement(wc, `${themeName}:spikes`, x, y)) {
       return;
     }
 
@@ -2066,46 +2329,86 @@
       const acid = tile === "A";
       const surface = getTile(tx, ty - 1) !== tile;
       const pulse = Math.sin(time * 5 + tx * 0.7) * 0.5 + 0.5;
-      wc.fillStyle = acid ? "#2d6b12" : "#8a2a14";
+      const body = wc.createLinearGradient(0, y, 0, y + TILE);
+      body.addColorStop(0, acid ? "#4c9e1c" : "#e0561c");
+      body.addColorStop(1, acid ? "#1f5a0e" : "#8a1f10");
+      wc.fillStyle = body;
       wc.fillRect(x, y, TILE, TILE);
       if (surface) {
-        const wave = Math.round(Math.sin(time * 3 + tx) * 1.5);
-        wc.fillStyle = acid ? "#7bd62a" : `rgb(255, ${120 + Math.round(pulse * 80)}, 30)`;
-        wc.fillRect(x, y + 4 + wave, TILE, 8);
-        wc.fillStyle = acid ? "#d9ff9a" : "#ffe46e";
-        wc.fillRect(x, y + 4 + wave, TILE, 2);
-        wc.fillRect(x + ((tx * 7 + Math.floor(time * 4)) % 26), y + 1 - Math.round(pulse * 2), 4, 3);
+        glowStrip(x, y - 18, TILE, 22, acid ? "150, 255, 80" : "255, 150, 40", 0.22 + pulse * 0.08);
+        const wave = (px) => y + 5 + Math.sin(time * 2.5 + (x + px) * 0.1) * 2;
+        wc.fillStyle = acid ? "#8fe03a" : `rgb(255, ${150 + Math.round(pulse * 60)}, 40)`;
+        wc.beginPath();
+        wc.moveTo(x, y + 12);
+        for (let px = 0; px <= TILE; px += 4) {
+          wc.lineTo(x + px, wave(px));
+        }
+        wc.lineTo(x + TILE, y + 12);
+        wc.fill();
+        wc.strokeStyle = acid ? "#e4ffb0" : "#fff0a0";
+        wc.lineWidth = 1.5;
+        wc.beginPath();
+        wc.moveTo(x, wave(0));
+        for (let px = 4; px <= TILE; px += 4) {
+          wc.lineTo(x + px, wave(px));
+        }
+        wc.stroke();
+        const bx = x + ((tx * 7 + Math.floor(time * 1.5)) % 24) + 4;
+        const phase = (time * 1.5) % 1;
+        wc.strokeStyle = acid ? "rgba(230, 255, 180, 0.9)" : "rgba(255, 240, 160, 0.9)";
+        wc.lineWidth = 1;
+        wc.beginPath();
+        wc.arc(bx, wave(bx - x) - phase * 4, 1.5 + phase * 2, 0, Math.PI * 2);
+        wc.stroke();
       }
-      const by = y + TILE - ((time * 20 + tx * 13) % TILE);
-      wc.fillStyle = acid ? "rgba(200, 255, 120, 0.55)" : "rgba(255, 220, 90, 0.55)";
-      wc.fillRect(x + ((tx * 11) % 24) + 3, Math.round(by), 3, 3);
+      const by = y + TILE - ((time * 16 + tx * 13) % TILE);
+      wc.fillStyle = acid ? "rgba(210, 255, 140, 0.6)" : "rgba(255, 230, 120, 0.6)";
+      wc.beginPath();
+      wc.arc(x + ((tx * 11) % 22) + 5, by, 1.8, 0, Math.PI * 2);
+      wc.fill();
       return;
     }
 
     if (tile === "F") {
+      glowRect(x - 4, y + 4, TILE + 8, TILE - 4, "255, 140, 40", 0.18);
       for (let i = 0; i < 3; i += 1) {
-        const flick = Math.sin(time * 14 + tx * 2 + i * 2.1);
-        const h = 16 + flick * 5 + (i === 1 ? 6 : 0);
-        const fx = x + 2 + i * 10;
-        wc.fillStyle = "#e0401e";
-        wc.fillRect(fx, y + TILE - h, 9, h);
-        wc.fillStyle = "#ff9a2a";
-        wc.fillRect(fx + 2, y + TILE - h * 0.7, 5, h * 0.7);
-        wc.fillStyle = "#ffe36b";
-        wc.fillRect(fx + 3, y + TILE - h * 0.35, 3, h * 0.35);
+        const flick = Math.sin(time * 13 + tx * 2 + i * 2.1);
+        const h = 18 + flick * 5 + (i === 1 ? 7 : 0);
+        const fx = x + 6 + i * 10;
+        const base = y + TILE;
+        const sway = Math.sin(time * 9 + i + tx) * 2;
+        const layers = [
+          ["#d8321a", 6, 1],
+          ["#ff8a1e", 4.2, 0.75],
+          ["#ffe25a", 2.6, 0.45],
+        ];
+        for (const [color, w, k] of layers) {
+          wc.fillStyle = color;
+          wc.beginPath();
+          wc.moveTo(fx - w, base);
+          wc.quadraticCurveTo(fx - w * 1.1, base - h * k * 0.5, fx + sway * k, base - h * k);
+          wc.quadraticCurveTo(fx + w * 1.1, base - h * k * 0.5, fx + w, base);
+          wc.closePath();
+          wc.fill();
+        }
       }
+      const ember = (time * 1.2 + tx * 0.37) % 1;
+      wc.fillStyle = `rgba(255, 200, 80, ${1 - ember})`;
+      wc.fillRect(x + ((tx * 13) % 26) + 3, y + TILE - 14 - ember * 22, 2, 2);
       return;
     }
 
     if (tile === "E") {
+      const glow = 0.5 + 0.5 * Math.sin(time * 4);
+      glowRect(x - 20, y - 36, 72, 44, "255, 240, 150", 0.12 + glow * 0.18);
+      if (drawElement(wc, "exit", x - 16, y - 32, TILE * 2, TILE * 2)) {
+        return;
+      }
       // Placa grande de EXIT, como no original.
       wc.fillStyle = "#5b3a18";
       wc.fillRect(x + 13, y - 24, 6, TILE + 24);
       wc.fillStyle = "#3b240e";
       wc.fillRect(x + 13, y - 24, 2, TILE + 24);
-      const glow = 0.5 + 0.5 * Math.sin(time * 4);
-      wc.fillStyle = `rgba(255, 240, 150, ${0.15 + glow * 0.2})`;
-      wc.fillRect(x - 18, y - 50, 68, 34);
       wc.fillStyle = "#c0282e";
       wc.fillRect(x - 14, y - 46, 60, 26);
       wc.fillStyle = "#ffffff";
@@ -2167,6 +2470,13 @@
       const y = item.y + bob;
       const cx = x + item.w * 0.5;
       const cy = y + item.h * 0.5;
+
+      const sprite = item.kind === "coin"
+        ? `coin${Math.floor(time * 9 + item.bob * 3) % 6}`
+        : item.kind;
+      if (drawElement(wc, sprite, cx - 16, cy - 16)) {
+        continue;
+      }
 
       if (item.kind === "coin") {
         const spin = Math.abs(Math.cos(time * 3 + item.bob));
@@ -2256,6 +2566,10 @@
   }
 
   function drawBat(enemy, time) {
+    const flapFrame = Math.sin(time * 18 + enemy.t) > 0 ? 0 : 1;
+    if (drawElement(wc, `bat${flapFrame}`, enemy.x + enemy.w * 0.5 - 16, enemy.y + enemy.h * 0.5 - 16)) {
+      return;
+    }
     const x = Math.round(enemy.x);
     const y = Math.round(enemy.y);
     const flap = Math.sin(time * 18 + enemy.t) > 0;
@@ -2283,6 +2597,17 @@
   }
 
   function drawFish(enemy, time) {
+    if (elementsReady) {
+      const frame = Math.sin(time * 12 + enemy.t) > 0 ? 0 : 1;
+      wc.save();
+      wc.translate(enemy.x + enemy.w * 0.5, enemy.y + enemy.h * 0.5);
+      if (enemy.dir < 0) {
+        wc.scale(-1, 1);
+      }
+      drawElement(wc, `fish${frame}`, -16, -16);
+      wc.restore();
+      return;
+    }
     const x = Math.round(enemy.x);
     const y = Math.round(enemy.y);
     const d = enemy.dir;
@@ -2367,6 +2692,11 @@
   function drawHooks(time) {
     for (const hook of game.level.hooks) {
       const pulse = 0.5 + 0.5 * Math.sin(time * 3 + hook.x);
+      if (elementsReady) {
+        glowRect(hook.x - 14, hook.y - 14, 28, 28, "120, 230, 240", 0.15 + pulse * 0.25);
+        drawElement(wc, "hook", hook.x - 16, hook.y - 16);
+        continue;
+      }
       wc.fillStyle = "#4b5566";
       wc.fillRect(hook.x - 1, hook.y - 14, 2, 8);
       wc.strokeStyle = "#d9dee8";
@@ -2597,6 +2927,9 @@
   }
 
   function drawCoinIcon(x, y) {
+    if (drawElement(ctx, "coin0", x + (-8), y + (-7), 32, 32)) {
+      return;
+    }
     ctx.fillStyle = "#b8860b";
     ctx.fillRect(x, y, 16, 18);
     ctx.fillStyle = "#ffd54a";
@@ -2606,6 +2939,9 @@
   }
 
   function drawClockIcon(x, y) {
+    if (drawElement(ctx, "clock", x + (-7), y + (-6), 32, 32)) {
+      return;
+    }
     ctx.fillStyle = "#ffffff";
     ctx.beginPath();
     ctx.arc(x + 9, y + 9, 9, 0, Math.PI * 2);
@@ -2616,6 +2952,9 @@
   }
 
   function drawFruitIcon(x, y) {
+    if (drawElement(ctx, "fruit", x + (-7), y + (-5), 32, 32)) {
+      return;
+    }
     ctx.fillStyle = "#f07a2a";
     ctx.beginPath();
     ctx.arc(x + 9, y + 10, 8, 0, Math.PI * 2);

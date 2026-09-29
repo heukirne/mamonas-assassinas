@@ -65,14 +65,24 @@ Como no original, o Tiny se desfaz numa nuvem de pontos e se remonta com outra c
 - `style.css`: visual retro e responsividade
 - `game.js`: logica do jogo (fisica, fases em ASCII, HUD, IA, formas)
 - `assets/tiny_spritesheet.png`: sprite sheet dos personagens
-- `tools/generate_spritesheet.py`: gerador do sprite sheet
+- `assets/elements.png`: atlas dos elementos (tiles, itens, placa EXIT, morcego, peixe)
+- `tools/generate_spritesheet.py`: gera os dois PNGs (personagens + elementos)
+- `tools/elements_art.py`: desenho dos elementos, usado pelo gerador
+- `requirements.txt`: dependencias do gerador (Pillow)
 - `ref/`: documentacao e imagens de referencia
 
 ## Gerar sprite sheet novamente
 
+O jogo nao tem dependencias. So o gerador de sprites precisa do Pillow,
+instalado pelo [Socket Firewall](https://github.com/SocketDev/sfw-free) (`sfw`)
+para bloquear pacotes maliciosos:
+
 ```bash
-python3 tools/generate_spritesheet.py
+python3 -m venv .venv
+sfw .venv/bin/pip install -r requirements.txt
+.venv/bin/python tools/generate_spritesheet.py
 ```
 
-O jogo detecta automaticamente o tamanho dos frames no PNG.
+O jogo detecta automaticamente o tamanho dos frames no PNG. Se algum PNG nao
+carregar, `game.js` desenha tudo de forma procedural (fallback).
 

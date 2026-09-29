@@ -1,4 +1,4 @@
-"""Gera assets/tiny_spritesheet.png.
+"""Gera assets/tiny_spritesheet.png e assets/elements.png.
 
 Os Tinies sao desenhados em alta resolucao (supersampling 4x e reducao com
 filtro LANCZOS) para ficarem suaves no jogo. Cada linha e uma forma e cada
@@ -9,6 +9,8 @@ import random
 from math import cos, pi, sin
 
 from PIL import Image, ImageDraw, ImageFilter
+
+import elements_art
 
 FRAME = 128
 SS = 4
@@ -367,6 +369,10 @@ def main():
             atlas.alpha_composite(draw_tiny(form, state, col), (col * FRAME, row * FRAME))
     atlas.save("assets/tiny_spritesheet.png", optimize=True)
     print("Gerado: assets/tiny_spritesheet.png", atlas.size, "frame", FRAME)
+
+    elements = elements_art.build_atlas()
+    elements.save("assets/elements.png", optimize=True)
+    print("Gerado: assets/elements.png", elements.size, "celula", elements_art.CELL)
 
 
 if __name__ == "__main__":

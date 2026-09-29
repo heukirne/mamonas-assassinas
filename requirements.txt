@@ -1,0 +1,3 @@
+# Dependencias apenas para tools/generate_spritesheet.py (o jogo nao precisa de nada).
+# Instale via Socket Firewall: sfw pip install -r requirements.txt
+pillow>=10.3

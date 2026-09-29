@@ -22,8 +22,10 @@ Manter e evoluir uma versao web jogavel inspirada no Fury of the Furries, priori
 - `game.js`: toda a logica de jogo.
 - `index.html`: estrutura da pagina.
 - `style.css`: estilos da interface.
-- `assets/tiny_spritesheet.png`: sprite sheet utilizado em runtime.
-- `tools/generate_spritesheet.py`: script oficial para regenerar sprites.
+- `assets/tiny_spritesheet.png`: sprite sheet dos personagens usado em runtime.
+- `assets/elements.png`: atlas dos elementos do cenario (layout em `ELEMENT_LAYOUT` no `game.js`).
+- `tools/generate_spritesheet.py`: script oficial para regenerar os dois PNGs.
+- `tools/elements_art.py`: arte dos elementos (mantenha o layout igual ao de `game.js`).
 - `ref/`: material de pesquisa e referencia visual/documental.
 
 ## Fluxo recomendado para mudancas
@@ -31,7 +33,8 @@ Manter e evoluir uma versao web jogavel inspirada no Fury of the Furries, priori
 1. Ler rapidamente `README.md`.
 2. Fazer alteracoes pequenas e incrementais.
 3. Se mudar sprites, regenerar com:
-   `python3 tools/generate_spritesheet.py`
+   `sfw .venv/bin/pip install -r requirements.txt` (uma vez) e
+   `.venv/bin/python tools/generate_spritesheet.py`
 4. Validar JS com:
    `node --check game.js`
 5. Testar jogando localmente:
