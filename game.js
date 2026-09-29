@@ -10,10 +10,12 @@
   }
 
   const ctx = canvas.getContext("2d");
-  // O mundo e desenhado numa tela de baixa resolucao e ampliado sem
-  // suavizacao, como a imagem 320x200 do Amiga.
-  const view = document.createElement("canvas");
-  const wc = view.getContext("2d");
+  // O mundo e desenhado direto no canvas principal, ja na resolucao da tela.
+  const wc = ctx;
+  // O cenario de fundo e suave: e desenhado em baixa resolucao (1 pixel por
+  // unidade do jogo) e ampliado uma vez por quadro, o que custa bem menos.
+  const backdrop = document.createElement("canvas");
+  const bc = backdrop.getContext("2d");
 
   const TILE = 32;
   const VIEW_ROWS = 14;
@@ -134,12 +136,37 @@
   });
   elementSheet.src = "assets/elements.png";
 
-  function drawElement(c, name, x, y, w = TILE, h = TILE) {
-    const piece = elementsReady ? elements[name] : null;
+  // Copias ja reduzidas para o tamanho do tile na tela: desenhar quase 1:1
+  // e bem mais barato (e mais nitido) que reduzir 96px a cada quadro.
+  let scaledElements = Object.create(null);
+  let scaledFor = 0;
+
+  function scaledElement(name) {
+    const size = Math.max(8, Math.round(TILE * viewScale));
+    if (scaledFor !== size) {
+      scaledElements = Object.create(null);
+      scaledFor = size;
+    }
+    let piece = scaledElements[name];
     if (!piece) {
+      const src = elements[name];
+      piece = document.createElement("canvas");
+      piece.width = Math.round((src.width / ELEMENT_CELL) * size);
+      piece.height = Math.round((src.height / ELEMENT_CELL) * size);
+      const pc = piece.getContext("2d");
+      pc.imageSmoothingEnabled = true;
+      pc.imageSmoothingQuality = "high";
+      pc.drawImage(src, 0, 0, piece.width, piece.height);
+      scaledElements[name] = piece;
+    }
+    return piece;
+  }
+
+  function drawElement(c, name, x, y, w = TILE, h = TILE) {
+    if (!elementsReady || !elements[name]) {
       return false;
     }
-    c.drawImage(piece, x, y, w, h);
+    c.drawImage(c === wc ? scaledElement(name) : elements[name], x, y, w, h);
     return true;
   }
 
@@ -390,6 +417,7 @@
   let zoom = 2;
   let viewScale = 1;
   const viewSize = { w: 480, h: 448 };
+  const renderCam = { x: 0, y: 0 };
   let playH = 480;
 
   const game = {
@@ -459,16 +487,15 @@
     const footerH = footerEl ? footerEl.offsetHeight : 0;
     playH = Math.max(120, canvas.height - footerH - HUD_H);
     zoom = Math.max(1, playH / (TILE * VIEW_ROWS));
-    viewSize.w = Math.ceil(canvas.width / zoom);
-    viewSize.h = Math.ceil(playH / zoom);
-    // O mundo e desenhado em resolucao multiplicada: o cenario continua
-    // retro, mas os personagens em alta resolucao ficam nitidos.
-    viewScale = clamp(Math.ceil(zoom), 1, 3);
-    const vw = viewSize.w * viewScale;
-    const vh = viewSize.h * viewScale;
-    if (view.width !== vw || view.height !== vh) {
-      view.width = vw;
-      view.height = vh;
+    viewSize.w = canvas.width / zoom;
+    viewSize.h = playH / zoom;
+    // Escala mundo -> tela; os tiles sao alinhados a pixels em drawTiles.
+    viewScale = zoom;
+    const bw = Math.ceil(viewSize.w);
+    const bh = Math.ceil(viewSize.h);
+    if (backdrop.width !== bw || backdrop.height !== bh) {
+      backdrop.width = bw;
+      backdrop.height = bh;
     }
     wc.imageSmoothingEnabled = true;
     ctx.imageSmoothingEnabled = true;
@@ -1842,7 +1869,7 @@
   // ---------------------------------------------------------------------
 
   function skyGradient(colors) {
-    const g = wc.createLinearGradient(0, 0, 0, viewSize.h);
+    const g = bc.createLinearGradient(0, 0, 0, viewSize.h);
     g.addColorStop(0, colors[0]);
     g.addColorStop(0.55, colors[1]);
     g.addColorStop(1, colors[2]);
@@ -1854,57 +1881,57 @@
   }
 
   function hillPath(offset, period, baseY, amp, freq) {
-    wc.beginPath();
-    wc.moveTo(0, viewSize.h);
+    bc.beginPath();
+    bc.moveTo(0, viewSize.h);
     for (let x = 0; x <= viewSize.w + 6; x += 6) {
       const wx = x + offset;
       const y = baseY - amp * (0.5 + 0.5 * Math.sin((wx / period) * Math.PI * 2 * freq)) -
         amp * 0.35 * Math.sin((wx / period) * Math.PI * 2 * freq * 2.3 + 1.3);
-      wc.lineTo(x, y);
+      bc.lineTo(x, y);
     }
-    wc.lineTo(viewSize.w, viewSize.h);
-    wc.closePath();
+    bc.lineTo(viewSize.w, viewSize.h);
+    bc.closePath();
   }
 
   function drawHills(offset, period, baseY, amp, top, bottom, freq = 1) {
-    const g = wc.createLinearGradient(0, baseY - amp * 1.4, 0, viewSize.h);
+    const g = bc.createLinearGradient(0, baseY - amp * 1.4, 0, viewSize.h);
     g.addColorStop(0, top);
     g.addColorStop(1, bottom);
-    wc.fillStyle = g;
+    bc.fillStyle = g;
     hillPath(offset, period, baseY, amp, freq);
-    wc.fill();
+    bc.fill();
   }
 
   function glowCircle(x, y, r, color, alpha) {
-    const g = wc.createRadialGradient(x, y, 0, x, y, r);
+    const g = bc.createRadialGradient(x, y, 0, x, y, r);
     g.addColorStop(0, `rgba(${color}, ${alpha})`);
     g.addColorStop(1, `rgba(${color}, 0)`);
-    wc.fillStyle = g;
-    wc.fillRect(x - r, y - r, r * 2, r * 2);
+    bc.fillStyle = g;
+    bc.fillRect(x - r, y - r, r * 2, r * 2);
   }
 
   function cloud(x, y, s, color) {
-    wc.fillStyle = color;
-    wc.beginPath();
-    wc.arc(x, y, 12 * s, Math.PI * 0.5, Math.PI * 1.5);
-    wc.arc(x + 14 * s, y - 10 * s, 14 * s, Math.PI, Math.PI * 2);
-    wc.arc(x + 34 * s, y - 6 * s, 11 * s, Math.PI * 1.1, Math.PI * 2);
-    wc.arc(x + 46 * s, y, 12 * s, Math.PI * 1.5, Math.PI * 0.5);
-    wc.closePath();
-    wc.fill();
+    bc.fillStyle = color;
+    bc.beginPath();
+    bc.arc(x, y, 12 * s, Math.PI * 0.5, Math.PI * 1.5);
+    bc.arc(x + 14 * s, y - 10 * s, 14 * s, Math.PI, Math.PI * 2);
+    bc.arc(x + 34 * s, y - 6 * s, 11 * s, Math.PI * 1.1, Math.PI * 2);
+    bc.arc(x + 46 * s, y, 12 * s, Math.PI * 1.5, Math.PI * 0.5);
+    bc.closePath();
+    bc.fill();
   }
 
   function palm(x, groundY, h, lean, time) {
-    wc.strokeStyle = "#6b4a2a";
-    wc.lineWidth = 5;
-    wc.lineCap = "round";
-    wc.beginPath();
-    wc.moveTo(x, groundY);
-    wc.quadraticCurveTo(x + lean * 0.3, groundY - h * 0.6, x + lean, groundY - h);
-    wc.stroke();
-    wc.strokeStyle = "rgba(0,0,0,0.18)";
-    wc.lineWidth = 2;
-    wc.stroke();
+    bc.strokeStyle = "#6b4a2a";
+    bc.lineWidth = 5;
+    bc.lineCap = "round";
+    bc.beginPath();
+    bc.moveTo(x, groundY);
+    bc.quadraticCurveTo(x + lean * 0.3, groundY - h * 0.6, x + lean, groundY - h);
+    bc.stroke();
+    bc.strokeStyle = "rgba(0,0,0,0.18)";
+    bc.lineWidth = 2;
+    bc.stroke();
     const tx = x + lean;
     const ty = groundY - h;
     const sway = Math.sin(time * 1.3 + x) * 2;
@@ -1912,46 +1939,46 @@
       const a = -Math.PI + (i / 5) * Math.PI;
       const ex = tx + Math.cos(a) * 34;
       const ey = ty + Math.sin(a) * 12 + 14 + sway;
-      wc.strokeStyle = i % 2 ? "#2f8a3c" : "#3fa24a";
-      wc.lineWidth = 5;
-      wc.beginPath();
-      wc.moveTo(tx, ty);
-      wc.quadraticCurveTo(tx + Math.cos(a) * 20, ty - 12, ex, ey);
-      wc.stroke();
+      bc.strokeStyle = i % 2 ? "#2f8a3c" : "#3fa24a";
+      bc.lineWidth = 5;
+      bc.beginPath();
+      bc.moveTo(tx, ty);
+      bc.quadraticCurveTo(tx + Math.cos(a) * 20, ty - 12, ex, ey);
+      bc.stroke();
     }
-    wc.fillStyle = "#7a4e22";
-    wc.beginPath();
-    wc.arc(tx - 3, ty + 4, 3.5, 0, Math.PI * 2);
-    wc.arc(tx + 4, ty + 5, 3.5, 0, Math.PI * 2);
-    wc.fill();
-    wc.lineCap = "butt";
+    bc.fillStyle = "#7a4e22";
+    bc.beginPath();
+    bc.arc(tx - 3, ty + 4, 3.5, 0, Math.PI * 2);
+    bc.arc(tx + 4, ty + 5, 3.5, 0, Math.PI * 2);
+    bc.fill();
+    bc.lineCap = "butt";
   }
 
   function tree(x, groundY, h, r, trunk, leaf) {
-    wc.fillStyle = trunk;
-    wc.fillRect(x - r * 0.18, groundY - h, r * 0.36, h);
-    wc.fillStyle = leaf;
-    wc.beginPath();
-    wc.arc(x, groundY - h, r, 0, Math.PI * 2);
-    wc.arc(x - r * 0.7, groundY - h + r * 0.4, r * 0.7, 0, Math.PI * 2);
-    wc.arc(x + r * 0.7, groundY - h + r * 0.4, r * 0.7, 0, Math.PI * 2);
-    wc.fill();
+    bc.fillStyle = trunk;
+    bc.fillRect(x - r * 0.18, groundY - h, r * 0.36, h);
+    bc.fillStyle = leaf;
+    bc.beginPath();
+    bc.arc(x, groundY - h, r, 0, Math.PI * 2);
+    bc.arc(x - r * 0.7, groundY - h + r * 0.4, r * 0.7, 0, Math.PI * 2);
+    bc.arc(x + r * 0.7, groundY - h + r * 0.4, r * 0.7, 0, Math.PI * 2);
+    bc.fill();
   }
 
   function drawBackdrop(themeName, camX, time) {
     const theme = THEMES[themeName] || THEMES.castle;
     const W = viewSize.w;
     const H = viewSize.h;
-    wc.fillStyle = skyGradient(theme.sky);
-    wc.fillRect(0, 0, W, H);
+    bc.fillStyle = skyGradient(theme.sky);
+    bc.fillRect(0, 0, W, H);
 
     if (themeName === "desert") {
       const sx = W * 0.78 - camX * 0.02;
       glowCircle(sx, H * 0.22, 120, "255, 236, 170", 0.55);
-      wc.fillStyle = "#fff6d6";
-      wc.beginPath();
-      wc.arc(sx, H * 0.22, 30, 0, Math.PI * 2);
-      wc.fill();
+      bc.fillStyle = "#fff6d6";
+      bc.beginPath();
+      bc.arc(sx, H * 0.22, 30, 0, Math.PI * 2);
+      bc.fill();
       // mesas distantes
       drawHills(camX * 0.06, 900, H * 0.66, 30, "rgba(214, 128, 84, 0.8)", "rgba(240, 170, 110, 0.8)", 2);
       // piramides com face iluminada e sombra
@@ -1959,18 +1986,18 @@
         const px = wrap(i * 300 - camX * 0.12, W + 300) - 150;
         const s = 58 + (i % 2) * 34;
         const base = H * 0.76;
-        wc.fillStyle = "#f0b46a";
-        wc.beginPath();
-        wc.moveTo(px - s, base);
-        wc.lineTo(px, base - s);
-        wc.lineTo(px + s * 0.25, base);
-        wc.fill();
-        wc.fillStyle = "#c7824a";
-        wc.beginPath();
-        wc.moveTo(px, base - s);
-        wc.lineTo(px + s, base);
-        wc.lineTo(px + s * 0.25, base);
-        wc.fill();
+        bc.fillStyle = "#f0b46a";
+        bc.beginPath();
+        bc.moveTo(px - s, base);
+        bc.lineTo(px, base - s);
+        bc.lineTo(px + s * 0.25, base);
+        bc.fill();
+        bc.fillStyle = "#c7824a";
+        bc.beginPath();
+        bc.moveTo(px, base - s);
+        bc.lineTo(px + s, base);
+        bc.lineTo(px + s * 0.25, base);
+        bc.fill();
       }
       drawHills(camX * 0.25, 640, H * 0.82, 38, "#f2c078", "#dc9a52");
       drawHills(camX * 0.45, 440, H * 0.94, 34, "#e2a560", "#bf7c3c");
@@ -1985,17 +2012,17 @@
       }
       // ilhas e mar
       drawHills(camX * 0.08, 800, H * 0.66, 26, "#4f9c7a", "#3d8568", 1.5);
-      const sea = wc.createLinearGradient(0, H * 0.66, 0, H);
+      const sea = bc.createLinearGradient(0, H * 0.66, 0, H);
       sea.addColorStop(0, "#5fb4e6");
       sea.addColorStop(1, "#1f6fb0");
-      wc.fillStyle = sea;
-      wc.fillRect(0, H * 0.66, W, H * 0.34);
+      bc.fillStyle = sea;
+      bc.fillRect(0, H * 0.66, W, H * 0.34);
       for (let i = 0; i < 26; i += 1) {
         const wx = wrap(i * 61 - camX * 0.2 + Math.sin(time * 0.8 + i) * 8, W);
         const wy = H * 0.68 + (i % 6) * 12;
         const a = 0.25 + 0.25 * Math.sin(time * 2 + i);
-        wc.fillStyle = `rgba(255, 255, 255, ${a})`;
-        wc.fillRect(wx, wy, 14 + (i % 3) * 6, 1.5);
+        bc.fillStyle = `rgba(255, 255, 255, ${a})`;
+        bc.fillRect(wx, wy, 14 + (i % 3) * 6, 1.5);
       }
       drawHills(camX * 0.3, 700, H * 0.74, 22, "#58b85a", "#2f8a44");
       for (let i = 0; i < 5; i += 1) {
@@ -2013,24 +2040,24 @@
           const px = wrap(i * 140 + li * 53 - camX * layer.speed, W + 160) - 80;
           tree(px, H, H * layer.y, layer.r, layer.trunk, layer.leaf);
         }
-        const fog = wc.createLinearGradient(0, H * 0.4, 0, H);
+        const fog = bc.createLinearGradient(0, H * 0.4, 0, H);
         fog.addColorStop(0, "rgba(150, 210, 150, 0)");
         fog.addColorStop(1, "rgba(150, 210, 150, 0.12)");
-        wc.fillStyle = fog;
-        wc.fillRect(0, 0, W, H);
+        bc.fillStyle = fog;
+        bc.fillRect(0, 0, W, H);
       });
       for (let i = 0; i < 4; i += 1) {
         const px = wrap(i * 320 - camX * 0.05, W + 320) - 160;
-        const ray = wc.createLinearGradient(px, 0, px + 140, H);
+        const ray = bc.createLinearGradient(px, 0, px + 140, H);
         ray.addColorStop(0, "rgba(230, 255, 190, 0.16)");
         ray.addColorStop(1, "rgba(230, 255, 190, 0)");
-        wc.fillStyle = ray;
-        wc.beginPath();
-        wc.moveTo(px, 0);
-        wc.lineTo(px + 50, 0);
-        wc.lineTo(px + 190, H);
-        wc.lineTo(px + 110, H);
-        wc.fill();
+        bc.fillStyle = ray;
+        bc.beginPath();
+        bc.moveTo(px, 0);
+        bc.lineTo(px + 50, 0);
+        bc.lineTo(px + 190, H);
+        bc.lineTo(px + 110, H);
+        bc.fill();
       }
       // vaga-lumes
       for (let i = 0; i < 14; i += 1) {
@@ -2038,31 +2065,31 @@
         const fy = H * 0.35 + ((i * 53) % (H * 0.5)) + Math.cos(time + i) * 10;
         const a = 0.4 + 0.4 * Math.sin(time * 3 + i * 1.7);
         glowCircle(fx, fy, 6, "220, 255, 140", a * 0.6);
-        wc.fillStyle = `rgba(240, 255, 190, ${a})`;
-        wc.fillRect(fx - 1, fy - 1, 2, 2);
+        bc.fillStyle = `rgba(240, 255, 190, ${a})`;
+        bc.fillRect(fx - 1, fy - 1, 2, 2);
       }
     } else {
       const mx = W * 0.8 - camX * 0.03;
       glowCircle(mx, H * 0.2, 110, "200, 215, 255", 0.35);
-      wc.fillStyle = "#e9eeff";
-      wc.beginPath();
-      wc.arc(mx, H * 0.2, 26, 0, Math.PI * 2);
-      wc.fill();
-      wc.fillStyle = "rgba(170, 180, 215, 0.7)";
+      bc.fillStyle = "#e9eeff";
+      bc.beginPath();
+      bc.arc(mx, H * 0.2, 26, 0, Math.PI * 2);
+      bc.fill();
+      bc.fillStyle = "rgba(170, 180, 215, 0.7)";
       for (const [ox, oy, r] of [[-8, -6, 5], [7, 4, 4], [-3, 10, 3], [10, -9, 2.5]]) {
-        wc.beginPath();
-        wc.arc(mx + ox, H * 0.2 + oy, r, 0, Math.PI * 2);
-        wc.fill();
+        bc.beginPath();
+        bc.arc(mx + ox, H * 0.2 + oy, r, 0, Math.PI * 2);
+        bc.fill();
       }
       for (const s of starsFar) {
         const alpha = 0.35 + 0.35 * Math.sin(time * 0.4 + s.phase);
-        wc.fillStyle = `rgba(220, 230, 255, ${alpha})`;
-        wc.fillRect(wrap(s.x - camX * 0.05, W + 40) - 20, s.y, s.size, s.size);
+        bc.fillStyle = `rgba(220, 230, 255, ${alpha})`;
+        bc.fillRect(wrap(s.x - camX * 0.05, W + 40) - 20, s.y, s.size, s.size);
       }
       for (const s of starsNear) {
         const alpha = 0.5 + 0.45 * Math.sin(time + s.phase);
-        wc.fillStyle = `rgba(240, 246, 255, ${alpha})`;
-        wc.fillRect(wrap(s.x - camX * 0.1, W + 40) - 20, s.y, s.size, s.size);
+        bc.fillStyle = `rgba(240, 246, 255, ${alpha})`;
+        bc.fillRect(wrap(s.x - camX * 0.1, W + 40) - 20, s.y, s.size, s.size);
       }
       cloud(wrap(W * 0.6 - camX * 0.05 + time * 4, W + 120) - 60, H * 0.24, 1.1, "rgba(60, 70, 120, 0.55)");
       drawHills(camX * 0.08, 700, H * 0.78, 60, "#1c2552", "#141b3c", 1.6);
@@ -2070,25 +2097,25 @@
       for (let i = 0; i < 6; i += 1) {
         const px = wrap(i * 220 - camX * 0.2, W + 220) - 110;
         const th = 100 + (i % 3) * 40;
-        wc.fillStyle = "#121937";
-        wc.fillRect(px, H - th, 44, th);
+        bc.fillStyle = "#121937";
+        bc.fillRect(px, H - th, 44, th);
         for (let m = 0; m < 3; m += 1) {
-          wc.fillRect(px - 4 + m * 18, H - th - 10, 12, 10);
+          bc.fillRect(px - 4 + m * 18, H - th - 10, 12, 10);
         }
-        wc.beginPath();
-        wc.moveTo(px + 6, H - th - 10);
-        wc.lineTo(px + 22, H - th - 44);
-        wc.lineTo(px + 38, H - th - 10);
-        wc.fill();
+        bc.beginPath();
+        bc.moveTo(px + 6, H - th - 10);
+        bc.lineTo(px + 22, H - th - 44);
+        bc.lineTo(px + 38, H - th - 10);
+        bc.fill();
         const flicker = 0.6 + 0.3 * Math.sin(time * 5 + i * 2);
         glowCircle(px + 22, H - th + 30, 14, "255, 200, 110", 0.35 * flicker);
-        wc.fillStyle = `rgba(255, 214, 120, ${flicker})`;
-        wc.beginPath();
-        wc.moveTo(px + 18, H - th + 36);
-        wc.lineTo(px + 18, H - th + 26);
-        wc.arc(px + 22, H - th + 26, 4, Math.PI, 0);
-        wc.lineTo(px + 26, H - th + 36);
-        wc.fill();
+        bc.fillStyle = `rgba(255, 214, 120, ${flicker})`;
+        bc.beginPath();
+        bc.moveTo(px + 18, H - th + 36);
+        bc.lineTo(px + 18, H - th + 26);
+        bc.arc(px + 22, H - th + 26, 4, Math.PI, 0);
+        bc.lineTo(px + 26, H - th + 36);
+        bc.fill();
       }
     }
   }
@@ -2263,9 +2290,15 @@
     if (tile === "W") {
       const up = getTile(tx, ty - 1);
       const surface = up !== "W" && !isSolidTile(up);
-      let depth = isSolidTile(up) ? 2 : 0;
-      while (depth < 3 && getTile(tx, ty - depth - 1) === "W") {
+      // Mais escura quanto mais fundo; sob tetos solidos conta como funda.
+      let depth = 0;
+      let above = ty - 1;
+      while (depth < 3 && getTile(tx, above) === "W") {
         depth += 1;
+        above -= 1;
+      }
+      if (isSolidTile(getTile(tx, above))) {
+        depth = Math.min(3, depth + 2);
       }
       wc.fillStyle = WATER_SHADES[depth];
       wc.fillRect(x, y, TILE, TILE);
@@ -2427,8 +2460,18 @@
     const level = game.level;
     const theme = level.theme;
     const themeName = level.def.theme;
-    const camX = Math.round(game.camera.x);
-    const camY = Math.round(game.camera.y);
+    const camX = renderCam.x;
+    const camY = renderCam.y;
+    const k = viewScale;
+    // Cada tile ganha uma transformacao que leva suas bordas a pixels
+    // inteiros da tela: com zoom fracionario isso evita emendas finas.
+    const snapTile = (tx, ty) => {
+      const x0 = Math.round((tx * TILE - camX) * k);
+      const y0 = Math.round((ty * TILE - camY) * k);
+      const sx = (Math.round(((tx + 1) * TILE - camX) * k) - x0) / TILE;
+      const sy = (Math.round(((ty + 1) * TILE - camY) * k) - y0) / TILE;
+      wc.setTransform(sx, 0, 0, sy, x0 - sx * tx * TILE, y0 - sy * ty * TILE);
+    };
     const startX = Math.floor(camX / TILE) - 2;
     const endX = Math.floor((camX + viewSize.w) / TILE) + 2;
     const startY = Math.floor(camY / TILE) - 1;
@@ -2448,12 +2491,15 @@
           exitTile = [tx, ty];
           continue;
         }
+        snapTile(tx, ty);
         drawTile(tile, tx, ty, time, theme, themeName);
       }
     }
     if (exitTile) {
+      snapTile(exitTile[0], exitTile[1]);
       drawTile("E", exitTile[0], exitTile[1], time, theme, themeName);
     }
+    wc.setTransform(k, 0, 0, k, -camX * k, -camY * k);
   }
 
   // ---------------------------------------------------------------------
@@ -2876,8 +2922,17 @@
   function renderWorld(time) {
     const camX = Math.round(game.camera.x * viewScale) / viewScale;
     const camY = Math.round(game.camera.y * viewScale) / viewScale;
-    wc.setTransform(viewScale, 0, 0, viewScale, 0, 0);
+    renderCam.x = camX;
+    renderCam.y = camY;
     drawBackdrop(game.level.def.theme, camX, time);
+    wc.save();
+    wc.beginPath();
+    wc.rect(0, 0, canvas.width, playH);
+    wc.clip();
+    wc.setTransform(1, 0, 0, 1, 0, 0);
+    wc.imageSmoothingEnabled = true;
+    wc.drawImage(backdrop, 0, 0, backdrop.width * viewScale, backdrop.height * viewScale);
+    wc.setTransform(viewScale, 0, 0, viewScale, 0, 0);
     wc.save();
     wc.translate(-camX, -camY);
     drawTiles(time);
@@ -2893,15 +2948,9 @@
     drawPlayer(time);
     drawParticles();
     wc.restore();
+    wc.restore();
+    wc.setTransform(1, 0, 0, 1, 0, 0);
   }
-
-  function blitView(height = viewSize.h * zoom) {
-    const scale = height / viewSize.h;
-    ctx.imageSmoothingEnabled = true;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(view, 0, 0, view.width, view.height, 0, 0, Math.round(viewSize.w * scale), Math.round(height));
-  }
-
 
   // ---------------------------------------------------------------------
   // HUD e telas
@@ -3068,9 +3117,10 @@
   }
 
   function drawTitle(time) {
-    wc.setTransform(viewScale, 0, 0, viewScale, 0, 0);
     drawBackdrop("desert", time * 40, time);
-    blitView(playH + HUD_H);
+    ctx.imageSmoothingEnabled = true;
+    const titleScale = (playH + HUD_H) / backdrop.height;
+    ctx.drawImage(backdrop, 0, 0, backdrop.width * titleScale, playH + HUD_H);
     ctx.fillStyle = "rgba(10, 8, 30, 0.35)";
     ctx.fillRect(0, 0, canvas.width, playH + HUD_H);
 
@@ -3110,7 +3160,6 @@
     }
 
     renderWorld(time);
-    blitView();
     drawHUD(time);
 
     if (game.state === "intro") {
@@ -3139,7 +3188,7 @@
   window.addEventListener("resize", resizeCanvas);
 
   if (/[?&]debug\b/.test(window.location.search)) {
-    window.__tiny = { game, LEVELS, keyState, startLevel, newGame, update, getTile };
+    window.__tiny = { game, LEVELS, keyState, startLevel, newGame, update, render, getTile };
   }
 
   let last = performance.now();
