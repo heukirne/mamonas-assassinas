@@ -46,6 +46,8 @@ Manter e evoluir uma versao web jogavel inspirada no Fury of the Furries, priori
 
 ## Quando alterar mapa/mecanicas
 
+- As fases ficam no array `LEVELS` de `game.js`, desenhadas em ASCII (legenda no comentario acima do array).
+- Abrir `index.html?debug` expoe `window.__tiny` para testes pelo console.
 - Garantir que a fase continua finalizavel.
 - Manter obstaculos que exigem cada forma (fogo/agua/terra/ar).
 - Evitar soft-locks.
